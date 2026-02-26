@@ -89,10 +89,12 @@ def calculer_elo_complet(df, k=150):
         if g in scores and p in scores:
             ea = 1 / (1 + 10 ** ((scores[p] - scores[g]) / 400))
             changement = k * (1 - ea)
-            scores[g] += changement; scores[p] -= changement
+            scores[g] += changement
+            scores[p] -= changement
             historique.append({'Date': row['Date'], 'Singe': g, 'Elo': scores[g]})
             historique.append({'Date': row['Date'], 'Singe': p, 'Elo': scores[p]})
-            bilan[g]['Gains'] += 1; bilan[p]['Pertes'] += 1
+            bilan[g]['Gains'] += 1
+            bilan[p]['Pertes'] += 1
     res = pd.DataFrame([{'Singe': ind, 'Elo_Final': round(scores[ind]), 'Gains': bilan[ind]['Gains'], 'Pertes': bilan[ind]['Pertes']} for ind in individus])
     return res.sort_values('Elo_Final', ascending=False), pd.DataFrame(historique)
 
@@ -184,7 +186,8 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
     if needs_agon and agon_c is None: return html.Div([dcc.Upload(id='upload-agon', children=html.Div(['📂 Charger AGONISTIQUE']), style={'height': '100px', 'lineHeight': '100px', 'border': '2px dashed #475569', 'textAlign': 'center'})], style=CARD_STYLE)
     
     try:
-        dfp_raw = decode_df(prox_c); dfa = decode_df(agon_c)
+        dfp_raw = decode_df(prox_c)
+        dfa = decode_df(agon_c)
         dfp = dfp_raw.copy()
         if slider_val and dfp is not None:
             dfp['Date'] = pd.to_datetime(dfp['Date'], dayfirst=True, errors='coerce')
@@ -193,12 +196,15 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
             if idx < len(unique_dates):
                 sel_date = unique_dates[idx]; dfp = dfp[dfp['Date'] == sel_date]
                 if dfa is not None: 
-                    dfa['Date'] = pd.to_datetime(dfa['Date'], dayfirst=True, errors='coerce'); dfa = dfa[dfa['Date'] <= sel_date]
+                    dfa['Date'] = pd.to_datetime(dfa['Date'], dayfirst=True, errors='coerce')
+                    dfa = dfa[dfa['Date'] <= sel_date]
 
         if dfp is not None:
-            dfp['Subject'] = dfp['Subject'].apply(clean_name); dfp['Partner'] = dfp['Partner'].apply(clean_name)
+            dfp['Subject'] = dfp['Subject'].apply(clean_name)
+            dfp['Partner'] = dfp['Partner'].apply(clean_name)
         if dfa is not None:
-            dfa['actor'] = dfa['actor'].apply(clean_name); dfa['receiver'] = dfa['receiver'].apply(clean_name)
+            dfa['actor'] = dfa['actor'].apply(clean_name)
+            dfa['receiver'] = dfa['receiver'].apply(clean_name)
         if dfp is not None:
             edges_df = dfp[dfp['Partner'] != "Alone"].groupby(['Subject', 'Partner']).size().reset_index(name='weight')
             G = nx.from_pandas_edgelist(edges_df, 'Subject', 'Partner', ['weight'])
@@ -212,27 +218,34 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
             nodes_list = list(G.nodes())
             for _ in range(100):
                 perm_labels = nodes_list.copy(); random.shuffle(perm_labels)
-                label_map = dict(zip(nodes_list, perm_labels)); G_perm = nx.relabel_nodes(G, label_map)
+                label_map = dict(zip(nodes_list, perm_labels))
+                G_perm = nx.relabel_nodes(G, label_map)
                 c_perm = list(community.greedy_modularity_communities(G_perm, weight='weight'))
                 null_mods.append(community.modularity(G_perm, c_perm, weight='weight'))
             p_value = np.mean([m >= mod_obs for m in null_mods])
             fig_perm = px.histogram(null_mods, nbins=20, template='plotly_dark', title="Distribution de Modularité", color_discrete_sequence=['#94a3b8'])
             fig_perm.add_vline(x=mod_obs, line_width=3, line_dash="dash", line_color=COLORS['accent'])
-            pos_3d = nx.spring_layout(G, dim=3, seed=42); fig_3d = go.Figure()
+            pos_3d = nx.spring_layout(G, dim=3, seed=42)
+            fig_3d = go.Figure()
             for edge in G.edges(data=True):
-                x0, y0, z0 = pos_3d[edge[0]]; x1, y1, z1 = pos_3d[edge[1]]
+                x0, y0, z0 = pos_3d[edge[0]]
+                x1, y1, z1 = pos_3d[edge[1]]
                 fig_3d.add_trace(go.Scatter3d(x=[x0, x1, None], y=[y0, y1, None], z=[z0, z1, None], mode='lines', line=dict(color='white', width=2), hoverinfo='none', opacity=0.4, showlegend=False))
             for i, comm in enumerate(communities): 
                 fig_3d.add_trace(go.Scatter3d(x=[pos_3d[n][0] for n in comm], y=[pos_3d[n][1] for n in comm], z=[pos_3d[n][2] for n in comm], mode='markers+text', name=f"Clan {i+1}", text=list(comm), marker=dict(size=15, color=COLORS['clans'][i % len(COLORS['clans'])])))
             return html.Div([make_intro_box(tab), html.Div([html.Div([html.Small("MODULARITÉ"), html.H3(f"{mod_obs:.3f}")], style=INDICATOR_STYLE), html.Div([html.Small("P-VALUE"), html.H3(f"{p_value:.3f}", style={'color': COLORS['win'] if p_value < 0.05 else COLORS['loss']})], style=INDICATOR_STYLE)], style={'display': 'flex', 'gap': '15px', 'marginBottom': '20px'}), html.Div([html.Div([dash_table.DataTable(data=df_clans.to_dict('records'), **TABLE_STYLE)], style={'flex': 1}), html.Div([dcc.Graph(figure=fig_perm, config=PLOT_CONFIG)], style={'flex': 1.5})], style={'display': 'flex', 'gap': '15px', **CARD_STYLE}), html.Div([dcc.Graph(figure=fig_3d.update_layout(template='plotly_dark', margin=dict(l=0,r=0,b=0,t=0)), config=PLOT_CONFIG, style={'height': '70vh'})], style=CARD_STYLE), make_bio_card(tab)])
 
         elif tab == 'tab-hier':
-            df_s, df_h = calculer_elo_complet(dfa); df_h_pivot = df_h.pivot_table(index='Date', columns='Singe', values='Elo', aggfunc='last').ffill()
-            ranks = df_h_pivot.rank(axis=1, ascending=False); turbulence = ranks.std().mean() if len(df_h_pivot) > 1 else 0.0
+            df_s, df_h = calculer_elo_complet(dfa)
+            df_h_pivot = df_h.pivot_table(index='Date', columns='Singe', values='Elo', aggfunc='last').ffill()
+            ranks = df_h_pivot.rank(axis=1, ascending=False)
+            turbulence = ranks.std().mean() if len(df_h_pivot) > 1 else 0.0
             if not df_s.empty:
-                max_elo = df_s['Elo_Final'].max(); min_elo = df_s['Elo_Final'].min()
+                max_elo = df_s['Elo_Final'].max()
+                min_elo = df_s['Elo_Final'].min()
                 steepness = (max_elo - min_elo) / max_elo if max_elo > 0 else 0
-                df_s_norm = df_s.sort_values('Elo_Final', ascending=False).reset_index(drop=True); df_s_norm['Rang'] = df_s_norm.index + 1
+                df_s_norm = df_s.sort_values('Elo_Final', ascending=False).reset_index(drop=True)
+                df_s_norm['Rang'] = df_s_norm.index + 1
                 fig_steep = px.scatter(df_s_norm, x='Rang', y='Elo_Final', text='Singe', trendline="ols", template='plotly_dark', title="Pente Elo")
                 fig_steep.update_traces(marker=dict(size=12, color=COLORS['accent']), textposition='top center')
             else: steepness = 0; fig_steep = go.Figure()
@@ -242,10 +255,12 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
 
         elif tab == 'tab-cent':
             bet = nx.betweenness_centrality(G, weight='weight'); deg = dict(G.degree(weight='weight'))
-            clo = nx.closeness_centrality(G, distance='weight'); clus = nx.clustering(G, weight='weight')
+            clo = nx.closeness_centrality(G, distance='weight')
+            clus = nx.clustering(G, weight='weight')
             try: eig = nx.eigenvector_centrality_numpy(G, weight='weight')
             except: eig = {n: 0 for n in G.nodes()}
             cent_df = pd.DataFrame({'Singe': list(G.nodes()), 'Degree': [deg[n] for n in G.nodes()], 'Betweenness': [round(bet[n], 3) for n in G.nodes()], 'Closeness': [round(clo[n], 3) for n in G.nodes()], 'Eigenvector': [round(eig[n], 3) for n in G.nodes()], 'Clustering': [round(clus[n], 3) for n in G.nodes()]})
+            
             fig_bar_deg = px.bar(cent_df.sort_values('Degree', ascending=False), x='Singe', y='Degree', template='plotly_dark', color='Degree', color_continuous_scale='RdBu_r', title="Degree")
             fig_bar_bet = px.bar(cent_df.sort_values('Betweenness', ascending=False), x='Singe', y='Betweenness', template='plotly_dark', color='Betweenness', color_continuous_scale='RdBu_r', title="Betweenness")
             fig_bar_clo = px.bar(cent_df.sort_values('Closeness', ascending=False), x='Singe', y='Closeness', template='plotly_dark', color='Closeness', color_continuous_scale='RdBu_r', title="Closeness")
@@ -258,19 +273,22 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
             ], style={**CARD_STYLE, 'border': f'2px solid {COLORS["accent"]}', 'backgroundColor': '#111827'})
             
             node_colors = cent_df[active_m if active_m in cent_df.columns else 'Betweenness']
-            pos_2d = nx.spring_layout(G, seed=42); fig_2d = go.Figure()
+            pos_2d = nx.spring_layout(G, seed=42)
+            fig_2d = go.Figure()
             max_w = max([d['weight'] for u, v, d in G.edges(data=True)]) if G.edges() else 1
             for u, v, d in G.edges(data=True):
                 x0, y0 = pos_2d[u]; x1, y1 = pos_2d[v]; w = (d['weight'] / max_w) * 5 + 0.5
                 fig_2d.add_trace(go.Scatter(x=[x0, x1, None], y=[y0, y1, None], mode='lines', line=dict(color='white', width=w), hoverinfo='none', opacity=0.4, showlegend=False))
             fig_2d.add_trace(go.Scatter(x=[pos_2d[n][0] for n in G.nodes()], y=[pos_2d[n][1] for n in G.nodes()], mode='markers+text', text=list(G.nodes()), marker=dict(size=25, color=node_colors, colorscale='RdBu_r', showscale=True, colorbar=dict(title=active_m)), showlegend=False))
-            pos_3d = nx.spring_layout(G, dim=3, seed=42); fig_3d = go.Figure()
+            pos_3d = nx.spring_layout(G, dim=3, seed=42)
+            fig_3d = go.Figure()
             for u, v, d in G.edges(data=True):
                 x0, y0, z0 = pos_3d[u]; x1, y1, z1 = pos_3d[v]; w = (d['weight'] / max_w) * 8 + 1
                 fig_3d.add_trace(go.Scatter3d(x=[x0, x1, None], y=[y0, y1, None], z=[z0, z1, None], mode='lines', line=dict(color='white', width=w), hoverinfo='none', opacity=0.3, showlegend=False))
             fig_3d.add_trace(go.Scatter3d(x=[pos_3d[n][0] for n in G.nodes()], y=[pos_3d[n][1] for n in G.nodes()], z=[pos_3d[n][2] for n in G.nodes()], mode='markers+text', text=list(G.nodes()), marker=dict(size=8, color=node_colors, colorscale='RdBu_r'), showlegend=False))
             subj = radar_sub[0] if radar_sub else cent_df['Singe'].iloc[0]
-            row = cent_df[cent_df['Singe'] == subj].iloc[0]; metrics = ['Degree', 'Betweenness', 'Closeness', 'Eigenvector', 'Clustering']
+            row = cent_df[cent_df['Singe'] == subj].iloc[0]
+            metrics = ['Degree', 'Betweenness', 'Closeness', 'Eigenvector', 'Clustering']
             fig_radar = go.Figure()
             fig_radar.add_trace(go.Scatterpolar(r=[cent_df[m].mean()/cent_df[m].max() if cent_df[m].max()!=0 else 0 for m in metrics], theta=metrics, fill='toself', name='Moyenne', line_color='#94a3b8', opacity=0.5))
             fig_radar.add_trace(go.Scatterpolar(r=[row[m]/cent_df[m].max() if cent_df[m].max()!=0 else 0 for m in metrics], theta=metrics, fill='toself', name=subj, line_color=COLORS['accent']))
@@ -278,15 +296,16 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
             return html.Div([make_intro_box(tab), html.Div([dash_table.DataTable(data=cent_df.sort_values(active_m, ascending=False).to_dict('records'), **TABLE_STYLE)], style=CARD_STYLE), barplots_container, html.Div([html.Div([html.Label("Singe :"), dcc.Dropdown(id={'type': 'radar-subject', 'index': 'radar'}, options=[{'label': n, 'value': n} for n in cent_df['Singe']], value=subj, style={'color': 'black'}), dcc.Graph(figure=fig_radar, config=PLOT_CONFIG)], style={'flex': 1}), html.Div([html.Label("Métrique :"), dcc.Dropdown(id='metric-selector', options=[{'label': k, 'value': k} for k in ['Degree', 'Betweenness', 'Closeness', 'Eigenvector', 'Clustering']], value=active_m, style={'color': 'black'}), dcc.Graph(figure=fig_2d.update_layout(template='plotly_dark', margin=dict(l=0,r=0,b=0,t=40)), config=PLOT_CONFIG)], style={'flex': 1.2})], style={'display': 'flex', 'gap': '15px', **CARD_STYLE}), html.Div([dcc.Graph(figure=fig_3d.update_layout(template='plotly_dark', margin=dict(l=0,r=0,b=0,t=40)), config=PLOT_CONFIG, style={'height': '60vh'})], style=CARD_STYLE), make_bio_card(tab)])
 
         elif tab == 'tab-affin':
-            df_s, _ = calculer_elo_complet(dfa); ordre_hier = df_s['Singe'].tolist()
+            df_s, _ = calculer_elo_complet(dfa)
+            ordre_hier = df_s['Singe'].tolist()
             dyades = dfp[dfp['Partner'] != "Alone"].groupby(['Subject', 'Partner']).size().reset_index(name='Freq')
             fig = px.density_heatmap(dyades, x='Subject', y='Partner', z='Freq', template='plotly_dark', color_continuous_scale="RdBu_r", category_orders={'Subject': ordre_hier, 'Partner': ordre_hier})
             return html.Div([make_intro_box(tab), html.Div([dash_table.DataTable(data=dyades.sort_values('Freq', ascending=False).head(20).to_dict('records'), **TABLE_STYLE)], style=CARD_STYLE), html.Div([dcc.Graph(figure=fig, config=PLOT_CONFIG)], style=CARD_STYLE), make_bio_card(tab)])
 
         elif tab == 'tab-health':
-            densite = nx.density(G); transitivite = nx.transitivity(G)
+            densite = nx.density(G)
+            transitivite = nx.transitivity(G)
             
-            # CALCUL SNA STABILITY
             sna_stability = 0.0
             if slider_val and dfp_raw is not None:
                 dfp_raw['Date'] = pd.to_datetime(dfp_raw['Date'], dayfirst=True, errors='coerce')
@@ -303,52 +322,51 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
                         deg_p = [dict(g_p.degree(weight='w'))[n] for n in common_nodes]
                         sna_stability, _ = pearsonr(deg_c, deg_p)
 
-            # CALCUL ROBUSTESSE (IMPACT DU RETRAIT)
             nodes = list(G.nodes())
             robustness_data = []
             orig_comm = list(community.greedy_modularity_communities(G, weight='weight'))
             orig_mod = community.modularity(G, orig_comm, weight='weight')
             
             for node in nodes:
-                G_temp = G.copy(); G_temp.remove_node(node)
+                G_temp = G.copy()
+                G_temp.remove_node(node)
                 if G_temp.number_of_nodes() > 1:
                     comm_temp = list(community.greedy_modularity_communities(G_temp, weight='weight'))
                     mod_temp = community.modularity(G_temp, comm_temp, weight='weight')
                     robustness_data.append({'Singe': node, 'Impact_Modularité': mod_temp - orig_mod})
             
             df_rob = pd.DataFrame(robustness_data).sort_values('Impact_Modularité')
-            fig_robust = px.bar(df_rob, x='Singe', y='Impact_Modularité', 
-                               title="Robustesse : Quel singe maintient les clans ?", 
-                               template='plotly_dark', color='Impact_Modularité', color_continuous_scale='RdYlGn')
+            fig_robust = px.bar(df_rob, x='Singe', y='Impact_Modularité', title="Robustesse : Quel singe maintient les clans ?", template='plotly_dark', color='Impact_Modularité', color_continuous_scale='RdYlGn')
 
             def shannon(node):
                 weights = [d['weight'] for u, v, d in G.edges(node, data=True)]
                 if not weights: return 0
-                prob = np.array(weights) / sum(weights); return -np.sum(prob * np.log(prob + 1e-9))
+                prob = np.array(weights) / sum(weights)
+                return -np.sum(prob * np.log(prob + 1e-9))
             div_sociale = np.mean([shannon(n) for n in G.nodes()])
             TRIAD_LABELS = {'003': 'Trio sans lien', '102': 'Paire unique', '201': 'Chaîne', '300': 'Clique'}
             triades_raw = nx.triadic_census(G.to_directed())
             df_tri_pie = pd.DataFrame([{'Motif': TRIAD_LABELS.get(k, k), 'Nombre': v} for k, v in triades_raw.items() if v > 0 and k in TRIAD_LABELS])
             fig_triades = px.pie(df_tri_pie, values='Nombre', names='Motif', title="Triades", template='plotly_dark')
             
-            role_data = {n: {'Pilier (300)': 0, 'Médiateur (201)': 0, 'Électron (201)': 0, 'Cible (102)': 0} for n in nodes}
+            role_data = {n: {'Pilier': 0, 'Médiateur': 0, 'Électron': 0, 'Cible': 0} for n in nodes}
             for trio in itertools.combinations(nodes, 3):
                 sub = G.subgraph(trio); e = sub.number_of_edges()
                 if e == 3: 
-                    for n in trio: role_data[n]['Pilier (300)'] += 1
+                    for n in trio: role_data[n]['Pilier'] += 1
                 elif e == 2:
                     for n in trio:
-                        if sub.degree(n) == 2: role_data[n]['Médiateur (201)'] += 1
-                        else: role_data[n]['Électron (201)'] += 1
+                        if sub.degree(n) == 2: role_data[n]['Médiateur'] += 1
+                        else: role_data[n]['Électron'] += 1
                 elif e == 1:
                     for n in trio:
-                        if sub.degree(n) == 0: role_data[n]['Cible (102)'] += 1
+                        if sub.degree(n) == 0: role_data[n]['Cible'] += 1
             df_roles = pd.DataFrame.from_dict(role_data, orient='index').reset_index().rename(columns={'index': 'Singe'})
             
             def get_status(row):
-                if row['Pilier (300)'] > 1: return "Noyau Dur"
-                if row['Médiateur (201)'] > 1: return "Pivot"
-                if row['Électron (201)'] > 1: return "Électron Libre"
+                if row['Pilier'] > 1: return "Noyau Dur"
+                if row['Médiateur'] > 1: return "Pivot"
+                if row['Électron'] > 1: return "Électron Libre"
                 return "Périphérique"
             df_roles['Statut Dominant'] = df_roles.apply(get_status, axis=1)
             
@@ -359,7 +377,8 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
                 {'if': {'column_id': 'Statut Dominant', 'filter_query': '{Statut Dominant} eq "Périphérique"'}, 'backgroundColor': '#451a03', 'color': 'white'}
             ]
 
-            df_s, _ = calculer_elo_complet(dfa); steep = (df_s['Elo_Final'].max() - df_s['Elo_Final'].min()) / df_s['Elo_Final'].max() if not df_s.empty else 0
+            df_s, _ = calculer_elo_complet(dfa)
+            steep = (df_s['Elo_Final'].max() - df_s['Elo_Final'].min()) / df_s['Elo_Final'].max() if not df_s.empty else 0
             fig_coh = go.Figure()
             fig_coh.add_trace(go.Scatterpolar(r=[densite, transitivite, steep, div_sociale/2], theta=['Densité', 'Transitivité', 'Steepness', 'Diversité'], fill='toself', line_color='#f472b6'))
             fig_coh.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 1])), template='plotly_dark')
@@ -384,10 +403,34 @@ def render_master(tab, prox_c, agon_c, x_var, y_var, active_m, slider_val, radar
             ])
 
         elif tab == 'tab-cross':
-            df_s, _ = calculer_elo_complet(dfa); bet = nx.betweenness_centrality(G, weight='weight'); deg = dict(G.degree(weight='weight'))
-            clo = nx.closeness_centrality(G, distance='weight'); eig = nx.eigenvector_centrality_numpy(G, weight='weight')
-            net_df = pd.DataFrame({'Singe': list(G.nodes()), 'Betweenness': [round(bet[n], 3) for n in G.nodes()], 'Degree': [deg[n] for n in G.nodes()], 'Closeness': [round(clo[n], 3) for n in G.nodes()], 'Eigenvector': [round(eig[n], 3) for n in G.nodes()]})
+            df_s, _ = calculer_elo_complet(dfa)
+            bet = nx.betweenness_centrality(G, weight='weight'); deg = dict(G.degree(weight='weight'))
+            clo = nx.closeness_centrality(G, distance='weight')
+            clus = nx.clustering(G, weight='weight')
+            try: eig = nx.eigenvector_centrality_numpy(G, weight='weight')
+            except: eig = {n: 0 for n in G.nodes()}
+            
+            # --- CALCUL DES RÔLES POUR FUSION ---
+            nodes = list(G.nodes())
+            role_data = {n: {'Pilier': 0, 'Médiateur': 0, 'Électron': 0, 'Cible': 0} for n in nodes}
+            for trio in itertools.combinations(nodes, 3):
+                sub = G.subgraph(trio); e = sub.number_of_edges()
+                if e == 3: 
+                    for n in trio: role_data[n]['Pilier'] += 1
+                elif e == 2:
+                    for n in trio:
+                        if sub.degree(n) == 2: role_data[n]['Médiateur'] += 1
+                        else: role_data[n]['Électron'] += 1
+                elif e == 1:
+                    for n in trio:
+                        if sub.degree(n) == 0: role_data[n]['Cible'] += 1
+            df_roles_cross = pd.DataFrame.from_dict(role_data, orient='index').reset_index().rename(columns={'index': 'Singe'})
+            
+            net_df = pd.DataFrame({'Singe': list(G.nodes()), 'Betweenness': [round(bet[n], 3) for n in G.nodes()], 'Degree': [deg[n] for n in G.nodes()], 'Closeness': [round(clo[n], 3) for n in G.nodes()], 'Eigenvector': [round(eig[n], 3) for n in G.nodes()], 'Clustering': [round(clus[n], 3) for n in G.nodes()]})
+            
             df_final = pd.merge(net_df, df_s[['Singe', 'Elo_Final']], on='Singe')
+            df_final = pd.merge(df_final, df_roles_cross, on='Singe')
+            
             fig = px.scatter(df_final, x=x_var, y=y_var, size='Degree', text='Singe', template='plotly_dark', color='Elo_Final', color_continuous_scale="RdBu_r", trendline="ols")
             return html.Div([make_intro_box(tab), html.Div([dash_table.DataTable(data=df_final.to_dict('records'), **TABLE_STYLE)], style=CARD_STYLE), html.Div([dcc.Graph(figure=fig, config=PLOT_CONFIG)], style=CARD_STYLE), make_bio_card(tab)])
     
